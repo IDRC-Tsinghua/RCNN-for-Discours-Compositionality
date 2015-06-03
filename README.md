@@ -1,2 +1,2 @@
 # RCNN-for-Discours-Compositionality
-Recurrent Convolutional Neural Networks for Discourse Compositionality
+Trying to implement a Recurrent Convolutional Neural Networks for Discourse Compositionality described in http://nal.co/papers/KalchbrennerBlunsom_CVSC13
