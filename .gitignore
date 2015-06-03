@@ -55,3 +55,10 @@ docs/_build/
 
 # PyBuilder
 target/
+
+# Output File of my code
+*.text
+*.bin
+*.phrases
+*.info
+*.pkl
