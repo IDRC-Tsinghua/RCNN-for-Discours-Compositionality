@@ -3,9 +3,13 @@ Trying to implement a Recurrent Convolutional Neural Networks for Discourse Comp
 
 ## Dependencies
 numpy
+
 theano
+
 word2vec
+
 python-dateutil
+
 nltk
 
 ## SWDA
