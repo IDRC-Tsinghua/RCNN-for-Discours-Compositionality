@@ -6,7 +6,7 @@ numpy
 
 theano
 
-word2vec
+gensim
 
 python-dateutil
 

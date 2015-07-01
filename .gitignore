@@ -59,6 +59,8 @@ target/
 # Output File of my code
 *.text
 *.bin
+*.model
 *.phrases
 *.info
 *.pkl
+*.gz
