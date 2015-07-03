@@ -64,3 +64,4 @@ target/
 *.info
 *.pkl
 *.gz
+*.tiny
