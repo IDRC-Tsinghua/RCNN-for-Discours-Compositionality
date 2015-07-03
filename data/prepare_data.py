@@ -8,7 +8,7 @@ from swda import CorpusReader
 from gensim.models import Word2Vec
 from gensim.models.word2vec import LineSentence
 
-vector_size = 100
+vector_size = 25
 swda_path = 'swda'
 text_file = 'swda.text'
 model_file = 'swda.model'
@@ -30,14 +30,16 @@ def str2wordlist(s):
 # ([word_vec1, word_vec2, ...], tag_no)
 def process_data(model, tags):
     print 'Reading and converting data from swda ...'
-    data = list()
+    x = list()
+    y = list()
     corpus = CorpusReader(swda_path)
     for utt in corpus.iter_utterances():
         wordlist = str2wordlist(utt.text.lower())
         words = [model[w] for w in wordlist]
         tag = tags[utt.act_tag]
-        data.append((words, tag))
-    return data
+        x.append(words)
+        y.append(tag)
+    return (x, y)
 
 
 def save_data(data, pickle_file):
