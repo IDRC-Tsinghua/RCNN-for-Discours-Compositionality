@@ -3,6 +3,7 @@ from rnn import RNN
 
 import cPickle
 import gzip
+import logging
 
 import numpy
 import theano
@@ -25,25 +26,33 @@ class RCNN(object):
 
 
 def load_data(dataset):
-    print 'Loading data ...'
+    logging.info('Loading data ...')
+    TRAIN_SET = 200000
+    VALID_SET = 210000
     f = gzip.open(dataset, 'rb')
     data = cPickle.load(f)
     f.close()
     data_x, data_y = data
-    train_x = data_x[:10000]
-    train_y = data_y[:10000]
-    test_x = data_x[10000:11000]
-    test_y = data_y[10000:11000]
+    train_x = data_x[:TRAIN_SET]
+    train_y = data_y[:TRAIN_SET]
+    valid_x = data_x[TRAIN_SET:VALID_SET]
+    valid_y = data_y[TRAIN_SET:VALID_SET]
+    test_x = data_x[VALID_SET:]
+    test_y = data_y[VALID_SET:]
 
-    return train_x, train_y, test_x, test_y
+    return train_x, train_y, valid_x, valid_y, test_x, test_y
 
 
-def test_rcnn(length, dim, n_out, n_hidden, lr=0.005, n_epochs=1000,
-        validation_frequency=1000, dataset='data/swda.pkl.gz'):
-    train_x, train_y, test_x, test_y = load_data(dataset)
+def test_rcnn(length, dim, n_out, n_hidden, lr=0.15, n_epochs=1000,
+    validation_frequency=10000, dataset='data/swda.pkl.gz'):
+    # load data
+    train_x, train_y, valid_x, valid_y, test_x, test_y = load_data(dataset)
     n_train = len(train_x)
+    n_valid = len(valid_x)
     n_test = len(test_x)
 
+    logging.info('Initializing ...')
+    # Expand x to length with 0 vector.
     def expand_x(x):
         res = list()
         l = len(x)
@@ -53,69 +62,63 @@ def test_rcnn(length, dim, n_out, n_hidden, lr=0.005, n_epochs=1000,
             else:
                 res.append([0]*dim)
         return numpy.array(res, dtype=theano.config.floatX)
+
+    # Expand y to [..., 0, 1, 0, ...]
     def expand_y(y):
         res = [0] * n_out
         res[y] = 1
         return numpy.array(res, dtype=theano.config.floatX)
 
-    xx = T.matrix('xx')
-    yy = T.vector('yy')
-    ii = T.scalar('ii')
+    # define variables
     x = T.matrix('x')
     y = T.vector('y')
     yi = T.scalar('yi')
 
+    # define network
     rcnn = RCNN(rng=numpy.random.RandomState(12345), input=x, length=length,
         dim=dim, n_hidden=n_hidden, n_out=n_out)
-
+    errors = rcnn.errors(yi)
     cost = rcnn.loss(y)
-    compute_train_error = theano.function(inputs=[xx, ii],
-        outputs=rcnn.errors(yi), givens={x: xx, yi: ii})
-    compute_train_loss = theano.function(inputs=[xx, yy],
-        outputs=cost, givens={x: xx, y: yy})
-    compute_test_error = theano.function(inputs=[xx, ii],
-        outputs=rcnn.errors(yi), givens={x: xx, yi: ii})
-    compute_test_loss = theano.function(inputs=[xx, yy],
-        outputs=cost, givens={x: xx, y: yy})
 
-    gparams = []
-    for param in rcnn.params:
-        gparam = T.grad(cost, param)
-        gparams.append(gparam)
+    # define functions
+    compute_error = theano.function(inputs=[x, yi], outputs=errors)
+    compute_loss = theano.function(inputs=[x, y], outputs=cost)
 
-    updates = []
-    for param, gparam in zip(rcnn.params, gparams):
-        updates.append((param, param - lr * gparam))
+    gparams = [T.grad(cost, param) for param in rcnn.params]
+    updates = [(param, param - lr * gparam) for (
+        param, gparam) in zip(rcnn.params, gparams)]
+    train_model = theano.function(inputs=[x, y], outputs=cost, updates=updates)
 
-    train_model = theano.function(inputs=[xx, yy], outputs=cost,
-        updates=updates, givens={x: xx, y: yy})
-
-    print 'Training ...'
+    # train
+    logging.info('Training ...')
     epoch = 0
     while epoch < n_epochs:
         epoch += 1
         for idx in xrange(n_train):
-            example_cost = train_model(expand_x(train_x[idx]),
-                expand_y(train_y[idx]))
+            train_model(expand_x(train_x[idx]), expand_y(train_y[idx]))
             iter = (epoch - 1) * n_train + idx + 1
             if iter % validation_frequency == 0:
-                train_errors = [compute_train_error(expand_x(train_x[i]),
-                    train_y[i]) for i in xrange(9000, n_train)]
-                this_train_error = numpy.mean(train_errors)
-                train_loss = [compute_train_loss(expand_x(train_x[i]),
-                    expand_y(train_y[i])) for i in xrange(9000, n_train)]
-                this_train_loss = numpy.mean(train_loss)
-                test_errors = [compute_test_error(expand_x(test_x[i]),
-                    test_y[i]) for i in xrange(n_test)]
-                this_test_error = numpy.mean(test_errors)
-                test_losses = [compute_test_loss(expand_x(test_x[i]),
-                    expand_y(test_y[i])) for i in xrange(n_test)]
-                this_test_loss = numpy.mean(test_losses)
-                print ('epoch %i, seq %i/%i, train error %f, test error %f ' +
-                    'train loss %f, test loss %f') % (epoch, idx+1, n_train,
-                        this_train_error, this_test_error, this_train_loss,
-                        this_test_loss)
-    print 'Done'
+                valid_errors = [compute_error(expand_x(valid_x[i]),
+                    valid_y[i]) for i in xrange(n_valid)]
+                mean_error = numpy.mean(valid_errors)
+                valid_loss = [compute_loss(expand_x(valid_x[i]),
+                    expand_y(valid_y[i])) for i in xrange(n_valid)]
+                mean_loss = numpy.mean(valid_loss)
+                logging.info(
+                    'Epoch %i, seq %i/%i, valid error %f, valid loss %f' % (
+                    epoch, idx+1, n_train, mean_error, mean_loss))
+
+    test_errors = [compute_error(
+        expand_x(test_x[i]), test_y[i]) for i in xrange(n_test)]
+    mean_error = numpy.mean(test_errors)
+    test_losses = [compute_loss(
+        expand_x(test_x[i]), expand_y(test_y[i])) for i in xrange(n_test)]
+    mean_loss = numpy.mean(test_losses)
+    logging.info('Test error %f, test loss %f' % (mean_error, mean_loss))
+    logging.info('Done')
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%d %b %Y %H:%M:%S', filename='rcnn.log', filemode='w')
     test_rcnn(length=78, dim=25, n_out=217, n_hidden=400)
