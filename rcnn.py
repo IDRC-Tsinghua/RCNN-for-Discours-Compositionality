@@ -43,8 +43,11 @@ def load_data(dataset):
     return train_x, train_y, valid_x, valid_y, test_x, test_y
 
 
-def test_rcnn(length, dim, n_out, n_hidden, lr=0.15, n_epochs=1000,
+def test_rcnn(length, dim, n_out, n_hidden, lr=0.01, n_epochs=1000,
     validation_frequency=10000, dataset='data/swda.pkl.gz'):
+    logging.info(('Starting with length = %d, dim = %d, n_out = %d, n_hidden' +
+        ' = %d, lr = %f, n_epochs = %d') % ( length, dim, n_out, n_hidden, lr,
+        n_epochs))
     # load data
     train_x, train_y, valid_x, valid_y, test_x, test_y = load_data(dataset)
     n_train = len(train_x)
