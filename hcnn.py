@@ -11,7 +11,8 @@ class HCNN(object):
     and totally it has cell(sqrt(2 * length)) - 1 layers.
     """
 
-    def __init__(self, rng, input, length, dim, activation=T.tanh):
+    def __init__(self, rng, input, length, dim,
+            sigmoid=T.nnet.sigmoid, activation=T.tanh):
         """
         :type rng: numpy.random.RandomState
         :param rng: a random number generator used to initialize weights
@@ -25,42 +26,64 @@ class HCNN(object):
         :type dim: int
         :param dim: dimensions of a word vector
 
+        :type sigmoid: theano.Op or function
+        :param sigmoid: None linearity to be applied in the hidden layer
+
         :type activation: theano.Op or function
         :param activation: None linearity to be applied in the hidden layer
         """
         W_bound = numpy.sqrt(6. / (length * dim))
         self.input = input
+        self.length = length
+        self.dim = dim
+        self.sigmoid = sigmoid
+        self.activation = activation
 
         # construct parameters
-        self.params = list()
+        self.filters = []
+        self.bs = []
+        self.params = []
         self.layers = 0
-        self.ns = list()
-        self.ks = list()
-        n = length
+        self.ns = []
+        self.ks = []
+        n = self.length
         k = 2
         while n > 1:
-            filter_init = numpy.asarray(rng.uniform(low=-W_bound, high=W_bound,
-                size=(1, 1, k, 1)), dtype=theano.config.floatX)
-            f = theano.shared(value=filter_init)
             n -= k - 1
+            f_init = numpy.asarray(rng.uniform(low=-W_bound, high=W_bound,
+                size=(dim, k)), dtype=theano.config.floatX)
+            f = theano.shared(value=f_init)
+            self.filters.append(f)
             self.params.append(f)
+            b_init = numpy.zeros((dim, n), dtype=theano.config.floatX)
+            b = theano.shared(value=b_init)
+            self.bs.append(b)
+            self.params.append(b)
             self.layers += 1
             self.ks.append(k)
             self.ns.append(n)
             k += 1
             if k > n:
                 k = n
-        b_init = numpy.zeros((1, 1, 1, dim), dtype=theano.config.floatX)
-        self.b = theano.shared(value=b_init)
-        self.params.append(self.b)
 
         # construct hcnn
-        self.nodes = list()
-        self.nodes.append(self.input)
-        for i in range(self.layers):
+        def conv_on_row_maker(k, n):
+            def conv_on_row(row, kernel):
+                return conv.conv2d(
+                    input=row.dimshuffle('x', 'x', 'x', 0),
+                    filters=kernel.dimshuffle('x', 'x', 'x', 0),
+                    filter_shape=(1, 1, 1, k),
+                    image_shape=(1, 1, 1, n)).dimshuffle(3,)
+            return conv_on_row
+        self.nodes = []
+        self.nodes.append(self.input.dimshuffle(1, 0))
+        for i in xrange(self.layers):
             n = length if i == 0 else self.ns[i - 1]
-            hidden = conv.conv2d(input=self.nodes[i], filters=self.params[i],
-                filter_shape=(1, 1, self.ks[i], 1), image_shape=(1, 1, n, dim))
+            conved, updates = theano.scan(fn=conv_on_row_maker(self.ks[i], n),
+                    outputs_info=None,
+                    sequences=[self.nodes[i], self.filters[i]])
+            hidden = self.sigmoid(conved + self.bs[i])
             self.nodes.append(hidden)
 
-        self.output = activation(self.nodes[self.layers] + self.b)
+        #self.output = self.activation(self.nodes[self.layers]).dimshuffle(1,0)
+        self.output = self.nodes[self.layers].dimshuffle(1, 0)

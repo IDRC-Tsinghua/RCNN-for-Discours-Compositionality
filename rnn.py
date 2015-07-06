@@ -6,13 +6,20 @@ class RNN(object):
     """Recurrent neural network
     """
 
-    def __init__(self, rng, input, n_in, n_hidden, n_out, activation=T.tanh):
+    def __init__(self, rng, input, h_prev, y_prev, n_in, n_hidden, n_out,
+        activation=T.tanh):
         """
         :type rng: numpy.random.RandomState
         :param rng: a random number generator used to initialize weights
 
         :type input: theano.tensor.dmatrix
         :param input: symbolic tensor, of shape (1, n_in)
+
+        :type h_prev: theano.tensor.dmatrix
+        :param h_prev: symbolic tensor, of shape (1, n_hidden)
+
+        :type y_prev: theano.tensor.dmatrix
+        :param y_prev: symbolic tensor, of shape (1, n_out)
 
         :type n_in: int
         :param n_in: dimensionality of input
@@ -27,6 +34,8 @@ class RNN(object):
         :param activation: None linearity to be applied in the hidden layer
         """
         self.input = input
+        self.h_prev = h_prev
+        self.y_prev = y_prev
         self.activation = activation
         self.softmax = T.nnet.softmax
 
@@ -42,14 +51,9 @@ class RNN(object):
             low=-0.1, high=0.1), dtype=theano.config.floatX)
         self.W_out = theano.shared(value=W_out_init)
 
-        W_back_init = numpy.asarray(rng.uniform(size=(n_out, n_hidden),
+        W_prev_init = numpy.asarray(rng.uniform(size=(n_out, n_hidden),
             low=-0.1, high=0.1), dtype=theano.config.floatX)
-        self.W_back = theano.shared(value=W_back_init)
-
-        h0_init = numpy.zeros((n_hidden,), dtype=theano.config.floatX)
-        self.h0 = theano.shared(value=h0_init)
-        y0_init = numpy.zeros((n_out,), dtype=theano.config.floatX)
-        self.y0 = theano.shared(value=y0_init)
+        self.W_prev = theano.shared(value=W_prev_init)
 
         bh_init = numpy.zeros((n_hidden,), dtype=theano.config.floatX)
         self.bh = theano.shared(value=bh_init)
@@ -57,23 +61,17 @@ class RNN(object):
         by_init = numpy.zeros((n_out,), dtype=theano.config.floatX)
         self.by = theano.shared(value=by_init)
 
-        self.params = [self.W, self.W_in, self.W_out,
-            self.h0, self.bh, self.by]
+        self.params = [self.W, self.W_in, self.W_out, self.W_prev,
+            self.bh, self.by]
 
-        def step(x_t, h_tm1, y_tm1):
-            h_t = self.activation(T.dot(x_t, self.W_in) + T.dot(h_tm1, self.W)
-                + T.dot(y_tm1, self.W_back)+ self.bh)
-            y_t = T.dot(h_t, self.W_out) + self.by
-            return h_t, y_t
-        [self.h, self.y_pred], up = theano.scan(fn=step, sequences=self.input,
-            outputs_info=[self.h0, self.y0])
+        self.h = self.activation(T.dot(self.input, self.W_in) + T.dot(
+            self.h_prev, self.W) + T.dot(self.y_prev, self.W_prev) + self.bh)
+        self.y = self.softmax(T.dot(self.h, self.W_out) + self.by)
 
-        self.p_y_given_x = self.softmax(self.y_pred)
-        self.y_out = T.argmax(self.p_y_given_x, axis=-1)
-        self.loss = lambda y: self.crossentropy(y)
+        self.output = T.argmax(self.y, axis=1)
 
-    def crossentropy(self, y):
-        return T.mean(T.nnet.binary_crossentropy(self.p_y_given_x, y))
+    def loss(self, y):
+        return T.mean(T.nnet.binary_crossentropy(self.y, y))
 
-    def errors(self, yi):
-        return T.mean(T.neq(self.y_out, yi))
+    def error(self, label):
+        return T.mean(T.neq(self.output, label))

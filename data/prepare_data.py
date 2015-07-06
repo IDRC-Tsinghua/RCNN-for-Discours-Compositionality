@@ -1,6 +1,9 @@
 import re
 import cPickle as pickle
 import multiprocessing
+import random
+import numpy
+from math import sqrt
 from operator import itemgetter
 from collections import defaultdict
 from swda import CorpusReader
@@ -30,8 +33,8 @@ def str2wordlist(s):
 # ([word_vec1, word_vec2, ...], tag_no)
 def process_data(model, tags):
     print 'Reading and converting data from swda ...'
-    x = list()
-    y = list()
+    x = []
+    y = []
     corpus = CorpusReader(swda_path)
     for utt in corpus.iter_utterances():
         wordlist = str2wordlist(utt.text.lower())
@@ -75,11 +78,22 @@ def preprocess_data():
     return {act_tags[i][0]: i for i in xrange(len(act_tags))}
 
 
+def random_vector(size):
+    res = [random.random() for i in xrange(size)]
+    length = sqrt(sum([i * i for i in res]))
+    res = [i / length for i in res]
+    return numpy.array(res)
+
+
 def train_word2vec(verbose=False):
     print 'Training word2vec ...'
-    model = Word2Vec(LineSentence(text_file), size=vector_size, min_count=1,
-            workers=multiprocessing.cpu_count())
-    model.save(model_file)
+    #model = Word2Vec(LineSentence(text_file), size=vector_size, min_count=1,
+    #        workers=multiprocessing.cpu_count())
+    #model.save(model_file)
+    f = open(text_file)
+    words = f.read().split()
+    f.close()
+    model = {word: random_vector(vector_size) for word in words}
     return model
 
 
