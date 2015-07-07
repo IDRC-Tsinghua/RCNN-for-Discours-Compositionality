@@ -89,7 +89,7 @@ def test_rcnn(length, dim, n_out, n_feature_maps, window_sizes, n_hidden,
     n_valid = len(valid_x)
     n_test = len(test_x)
     # Expand x to length with 0 vector.
-    def expand_x(x, min_size=4):
+    def expand_x(x, min_size=max(window_sizes)):
         fill_size = min_size - len(x)
         if fill_size > 0:
             x += [[0] * dim for i in xrange(fill_size)]
@@ -144,6 +144,7 @@ def test_rcnn(length, dim, n_out, n_feature_maps, window_sizes, n_hidden,
                         valid_x[idx_v], h_prev_valid, y_prev_valid,
                         valid_y[idx_v])
                     h_prev_valid = h_prev_valid.flatten()
+                    """
                     if idx_v < 10: # debug info
                         print 's = '
                         print ss
@@ -152,8 +153,8 @@ def test_rcnn(length, dim, n_out, n_feature_maps, window_sizes, n_hidden,
                         print 'y = '
                         print yy
                         print valid_label[idx_v]
-                    else:
-                        print y_prev_valid[0],
+                    """
+                    print y_prev_valid[0],
                     y_prev_valid = expand_y(y_prev_valid[0])
                     valid_losses += valid_loss
                 mean_loss = valid_losses / n_valid
@@ -187,4 +188,4 @@ if __name__ == '__main__':
         level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(message)s',
         datefmt='%d %b %Y %H:%M:%S', filename='training.log', filemode='w')
     test_rcnn(length=78, dim=25, n_out=217, n_feature_maps=100,
-        window_sizes=(2, 3, 4), n_hidden=100, lr=1.0)
+        window_sizes=(3, 4, 5), n_hidden=200, lr=0.01)
