@@ -57,12 +57,9 @@ docs/_build/
 target/
 
 # others
+data/swda
 *.text
-*.bin
 *.model
-*.phrases
 *.info
 *.pkl
 *.gz
-*.tiny
-*.tmp
