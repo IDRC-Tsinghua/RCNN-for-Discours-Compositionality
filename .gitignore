@@ -59,7 +59,6 @@ target/
 # others
 data/swda
 *.text
-*.model
-*.info
+*.tags
 *.pkl
 *.gz

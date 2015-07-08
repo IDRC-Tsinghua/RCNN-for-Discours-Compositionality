@@ -1,106 +1,84 @@
 import re
 import cPickle as pickle
-import multiprocessing
-import random
+import gzip
 import numpy
-from math import sqrt
 from operator import itemgetter
 from collections import defaultdict
 from swda import CorpusReader
-
 from gensim.models import Word2Vec
-from gensim.models.word2vec import LineSentence
 
-vector_size = 25
+
 swda_path = 'swda'
-text_file = 'swda.text'
-model_file = 'swda.model'
-info_file = 'swda.info'
-data_file = 'swda.pkl'
-
+model_file = 'vectors.bin.gz'
+tags_file = 'swda.tags'
+data_file = 'swda.pkl.gz'
 
 word_pattern = re.compile(r'[a-z\']+')
-one_letter_word = ('i', 'a')
+except_words = ('and', 'of', 'to')
+accept_words = ('i',)
 
 
 def str2wordlist(s):
-    return [w for w in word_pattern.findall(s) if (
-        len(w) > 1 or w in one_letter_word)]
+    words = [w.split('\'')[0] for w in word_pattern.findall(s)]
+    return [w for w in words if (
+        len(w) > 1 and w not in except_words or w in accept_words)]
 
 
-# convert each utterance into a list of word vectors(numpy array), convert tag
-# into it's # number. return a list whose element is formed as
+# convert each utterance into a list of word vectors(presented as list),
+# convert tag into it's number. return a list with element formed like
 # ([word_vec1, word_vec2, ...], tag_no)
 def process_data(model, tags):
-    print 'Reading and converting data from swda ...'
     x = []
     y = []
+    model_cache = {}
+    non_modelled = set()
     corpus = CorpusReader(swda_path)
     for utt in corpus.iter_utterances():
         wordlist = str2wordlist(utt.text.lower())
-        words = [model[w] for w in wordlist]
-        tag = tags[utt.act_tag]
+        for word in wordlist:
+            if word in model:
+                if word not in model_cache:
+                    model_cache[word] = model[word].tolist()
+            else:
+                non_modelled.add(word)
+        words = [model_cache[w] for w in wordlist if w in model_cache]
+        tag = tags[utt.damsl_act_tag()]
         x.append(words)
         y.append(tag)
+    print 'Complete. The following words are not converted: '
+    print list(non_modelled)
     return (x, y)
 
 
 def save_data(data, pickle_file):
-    print 'Saving ...'
-    f = open(pickle_file, 'w')
+    f = gzip.GzipFile(pickle_file, 'w')
     pickle.dump(data, f)
     f.close()
 
 
-# load corpus and save all the words into text_file as well as saving words
-# info and number of tags into info_file.
+# load corpus and save number of tags into tags_file.
 def preprocess_data():
-    print 'Preprocessing data ...'
-    longest = 0
     act_tags = defaultdict(lambda: 0)
     corpus = CorpusReader(swda_path)
-    f = open(text_file, 'w')
     for utt in corpus.iter_utterances():
-        act_tags[utt.act_tag] += 1
-        words = str2wordlist(utt.text.lower())
-        longest = len(words) if len(words) > longest else longest
-        f.write(' '.join(words))
-        f.write(' ')
-    f.close()
+        act_tags[utt.damsl_act_tag()] += 1
     act_tags = act_tags.iteritems()
     act_tags = sorted(act_tags, key=itemgetter(1), reverse=True)
-    f = open(info_file, 'w')
-    f.write('longest: %d\n' % longest)
-    f.write('tags:\n')
+    f = open(tags_file, 'w')
     for k, v in act_tags:
         f.write('%s %d\n' % (k, v))
     f.close()
-    return {act_tags[i][0]: i for i in xrange(len(act_tags))}
-
-
-def random_vector(size):
-    res = [random.random() for i in xrange(size)]
-    length = sqrt(sum([i * i for i in res]))
-    res = [i / length for i in res]
-    return numpy.array(res)
-
-
-def train_word2vec(verbose=False):
-    print 'Training word2vec ...'
-    #model = Word2Vec(LineSentence(text_file), size=vector_size, min_count=1,
-    #        workers=multiprocessing.cpu_count())
-    #model.save(model_file)
-    f = open(text_file)
-    words = f.read().split()
-    f.close()
-    model = {word: random_vector(vector_size) for word in words}
-    return model
+    return dict([(act_tags[i][0], i) for i in xrange(len(act_tags))])
 
 
 def main():
+    print 'Preprocessing data ...'
     tags = preprocess_data()
-    model = train_word2vec()
+    print 'Loading model ...'
+    model = Word2Vec.load_word2vec_format(model_file, binary=True)
+    print 'Reading and converting data from swda ...'
     data = process_data(model, tags)
+    print 'Saving ...'
     save_data(data, data_file)
 
 

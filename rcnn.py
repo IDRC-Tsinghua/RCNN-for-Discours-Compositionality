@@ -1,7 +1,7 @@
 from rnn import RNN
 from cnn import CNN
 
-import cPickle
+import cPickle as pickle
 import gzip
 import logging
 
@@ -13,9 +13,9 @@ import theano.tensor as T
 class RCNN(object):
     """combination of cnn and rnn
     """
-    def __init__(self, rng, input, h_prev, y_prev, length, dim, n_feature_maps,
+    def __init__(self, rng, input, h_prev, y_prev, dim, n_feature_maps,
             window_sizes, n_hidden, n_out):
-        self.cnn = CNN(rng=rng, input=input, length=length, dim=dim,
+        self.cnn = CNN(rng=rng, input=input, dim=dim,
             n_feature_maps=n_feature_maps, window_sizes=window_sizes)
         self.rnn = RNN(rng=rng, input=self.cnn.output, h_prev=h_prev,
             y_prev=y_prev, n_in=300, n_hidden=n_hidden, n_out=n_out)
@@ -32,7 +32,7 @@ def load_data(dataset):
     TRAIN_SET = 200000
     VALID_SET = 210000
     f = gzip.open(dataset, 'rb')
-    data = cPickle.load(f)
+    data = pickle.load(f)
     f.close()
     data_x, data_y = data
     train_x = data_x[:TRAIN_SET]
@@ -44,11 +44,11 @@ def load_data(dataset):
     return train_x, train_y, valid_x, valid_y, test_x, test_y
 
 
-def test_rcnn(length, dim, n_out, n_feature_maps, window_sizes, n_hidden,
+def test_rcnn(dim, n_out, n_feature_maps, window_sizes, n_hidden,
     lr=0.001, n_epochs=1000000, validation_frequency=1000,
     dataset='data/swda.pkl.gz'):
 
-    logging.info('length = %d, dim = %d, n_out = %d' % (length, dim, n_out))
+    logging.info('dim = %d, n_out = %d' % (dim, n_out))
     logging.info('n_feature_maps = %d, window_sizes={}, n_hidden = %d'.format(
         window_sizes) % (n_feature_maps, n_hidden))
     logging.info('lr = %f, n_epochs = %d' % (lr, n_epochs))
@@ -63,7 +63,7 @@ def test_rcnn(length, dim, n_out, n_feature_maps, window_sizes, n_hidden,
 
     # define network
     rcnn = RCNN(rng=numpy.random.RandomState(54321), input=x, h_prev=h_prev,
-        y_prev=y_prev, length=length, dim=dim, n_feature_maps=n_feature_maps,
+        y_prev=y_prev, dim=dim, n_feature_maps=n_feature_maps,
         window_sizes=window_sizes, n_hidden=n_hidden, n_out=n_out)
     h_cur = rcnn.h
     output = rcnn.output
@@ -88,13 +88,14 @@ def test_rcnn(length, dim, n_out, n_feature_maps, window_sizes, n_hidden,
     n_train = len(train_x)
     n_valid = len(valid_x)
     n_test = len(test_x)
-    # Expand x to length with 0 vector.
+    # Expand x to max window size
     def expand_x(x, min_size=max(window_sizes)):
         fill_size = min_size - len(x)
         if fill_size > 0:
-            x += [[0] * dim for i in xrange(fill_size)]
-        x = numpy.array(x, dtype=theano.config.floatX)
+            x += [[0] * dim] * fill_size
         return x
+    def wrap_x(x):
+        return numpy.array(x, dtype=theano.config.floatX)
     # Expand y to [..., 0, 1, 0, ...]
     def expand_y(y):
         res = [0] * n_out
@@ -120,7 +121,7 @@ def test_rcnn(length, dim, n_out, n_feature_maps, window_sizes, n_hidden,
         for idx in xrange(n_train):
             # train
             h_prev_train = train_model(
-                train_x[idx], h_prev_train, y_prev_train, train_y[idx])
+                wrap_x(train_x[idx]), h_prev_train, y_prev_train, train_y[idx])
             h_prev_train = h_prev_train.flatten()
             y_prev_train = train_y[idx]
 
@@ -130,7 +131,7 @@ def test_rcnn(length, dim, n_out, n_feature_maps, window_sizes, n_hidden,
                 valid_errors = 0
                 for idx_v in xrange(n_valid):
                     [valid_error, h_prev_valid, y_prev_valid] = compute_error(
-                        valid_x[idx_v], h_prev_valid, y_prev_valid,
+                        wrap_x(valid_x[idx_v]), h_prev_valid, y_prev_valid,
                         valid_label[idx_v])
                     h_prev_valid = h_prev_valid.flatten()
                     y_prev_valid = expand_y(y_prev_valid[0])
@@ -141,19 +142,18 @@ def test_rcnn(length, dim, n_out, n_feature_maps, window_sizes, n_hidden,
                 print '-----'
                 for idx_v in xrange(n_valid):
                     [valid_loss, h_prev_valid, y_prev_valid,ss,yy]=compute_loss(
-                        valid_x[idx_v], h_prev_valid, y_prev_valid,
+                        wrap_x(valid_x[idx_v]), h_prev_valid, y_prev_valid,
                         valid_y[idx_v])
                     h_prev_valid = h_prev_valid.flatten()
-                    """
-                    if idx_v < 10: # debug info
-                        print 's = '
-                        print ss
-                        print 'h = '
-                        print h_prev_valid
-                        print 'y = '
-                        print yy
-                        print valid_label[idx_v]
-                    """
+                    #if idx_v < 10: # debug info
+                        #print valid_x[idx_v]
+                        #print 's = '
+                        #print ss
+                        #print 'h = '
+                        #print h_prev_valid
+                        #print 'y = '
+                        #print yy
+                        #print valid_label[idx_v]
                     print y_prev_valid[0],
                     y_prev_valid = expand_y(y_prev_valid[0])
                     valid_losses += valid_loss
@@ -165,7 +165,7 @@ def test_rcnn(length, dim, n_out, n_feature_maps, window_sizes, n_hidden,
     test_errors = 0
     for idx in xrange(n_test):
         [test_error, h_prev_test, y_prev_test] = compute_error(
-            test_x[idx], h_prev_test, y_prev_test, test_label[idx])
+            wrap_x(test_x[idx]), h_prev_test, y_prev_test, test_label[idx])
         h_prev_test = h_prev_test.flatten()
         y_prev_test = expand_y(y_prev_test[0])
         test_errors += test_error
@@ -173,7 +173,7 @@ def test_rcnn(length, dim, n_out, n_feature_maps, window_sizes, n_hidden,
     test_losses = 0
     for idx in xrange(n_test):
         [test_loss, h_prev_test, y_prev_test] = compute_loss(
-            test_x[idx], h_prev_test, y_prev_test, test_y[idx])
+            wrap_x(test_x[idx]), h_prev_test, y_prev_test, test_y[idx])
         h_prev_test = h_prev_test.flatten()
         y_prev_test = expand_y(y_prev_test[0])
         test_losses += test_loss
@@ -187,5 +187,5 @@ if __name__ == '__main__':
     logging.basicConfig(
         level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(message)s',
         datefmt='%d %b %Y %H:%M:%S', filename='training.log', filemode='w')
-    test_rcnn(length=78, dim=25, n_out=217, n_feature_maps=100,
-        window_sizes=(3, 4, 5), n_hidden=200, lr=0.01)
+    test_rcnn(dim=300, n_out=43, n_feature_maps=100, window_sizes=(3, 4, 5),
+        n_hidden=500, lr=0.1)

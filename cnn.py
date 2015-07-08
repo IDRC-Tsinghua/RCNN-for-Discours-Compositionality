@@ -5,16 +5,13 @@ from theano.tensor.nnet import conv
 
 class CNN(object):
 
-    def __init__(self, rng, input, length, dim, n_feature_maps, window_sizes):
+    def __init__(self, rng, input, dim, n_feature_maps, window_sizes):
         """
         :type rng: numpy.random.RandomState
         :param rng: a random number generator used to initialize weights
 
-        :type input: theano.tensor.dtensor4
-        :param input: symbolic sentence tensor, of shape (1, 1, length, dim)
-
-        :type length: int
-        :param length: maximum length of a sentence
+        :type input: theano.tensor.matrix
+        :param input: symbolic sentence tensor
 
         :type dim: int
         :param dim: dimensions of a word vector
@@ -25,9 +22,7 @@ class CNN(object):
         :type window_sizes: tuple of int
         :param window_sizes: convolution kernel window sizes
         """
-        W_bound = numpy.sqrt(6. / (length * dim))
         self.input = input
-        self.length = length
         self.dim = dim
         self.n_feature_maps = n_feature_maps
         self.window_sizes = window_sizes
@@ -36,7 +31,7 @@ class CNN(object):
         reshaped_input = self.input.dimshuffle('x', 'x', 0, 1)
         self.output = None
         for window_size in window_sizes:
-            W_init = numpy.asarray(rng.uniform(low=-W_bound, high=W_bound,
+            W_init = numpy.asarray(rng.uniform(low=-0.1, high=0.1,
                 size=(self.n_feature_maps, 1, window_size, self.dim)),
                 dtype=theano.config.floatX)
             W = theano.shared(value=W_init)
