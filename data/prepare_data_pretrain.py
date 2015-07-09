@@ -11,7 +11,7 @@ from gensim.models import Word2Vec
 swda_path = 'swda'
 model_file = 'vectors.bin.gz'
 tags_file = 'swda.tags'
-data_file = 'swda.pkl.gz'
+data_file = 'swda.pretrain.pkl.gz'
 
 word_pattern = re.compile(r'[a-z\']+')
 except_words = ('and', 'of', 'to')
@@ -31,7 +31,7 @@ def process_data(model, tags):
     x = []
     y = []
     model_cache = {}
-    non_modelled = set()
+    non_modeled = set()
     corpus = CorpusReader(swda_path)
     for utt in corpus.iter_utterances():
         wordlist = str2wordlist(utt.text.lower())
@@ -40,13 +40,13 @@ def process_data(model, tags):
                 if word not in model_cache:
                     model_cache[word] = model[word].tolist()
             else:
-                non_modelled.add(word)
+                non_modeled.add(word)
         words = [model_cache[w] for w in wordlist if w in model_cache]
         tag = tags[utt.damsl_act_tag()]
         x.append(words)
         y.append(tag)
     print 'Complete. The following words are not converted: '
-    print list(non_modelled)
+    print list(non_modeled)
     return (x, y)
 
 

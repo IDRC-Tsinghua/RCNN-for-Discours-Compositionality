@@ -1,13 +1,15 @@
 from rnn import RNN
 from cnn import CNN
+from avg import Average
 
+import sys
 import cPickle as pickle
 import gzip
 import logging
-
 import numpy
 import theano
 import theano.tensor as T
+from collections import defaultdict
 
 
 class RCNN(object):
@@ -15,17 +17,21 @@ class RCNN(object):
     """
     def __init__(self, rng, input, h_prev, y_prev, dim, n_feature_maps,
             window_sizes, n_hidden, n_out):
-        self.cnn = CNN(rng=rng, input=input, dim=dim,
-            n_feature_maps=n_feature_maps, window_sizes=window_sizes)
-        self.rnn = RNN(rng=rng, input=self.cnn.output, h_prev=h_prev,
-            y_prev=y_prev, n_in=300, n_hidden=n_hidden, n_out=n_out)
-        self.s = self.cnn.output
+        #self.cnn = CNN(rng=rng, input=input, dim=dim,
+            #n_feature_maps=n_feature_maps, window_sizes=window_sizes)
+        #self.rnn = RNN(rng=rng, input=self.cnn.output, h_prev=h_prev,
+            #y_prev=y_prev, n_in=n_feature_maps*len(window_sizes),
+            #n_hidden=n_hidden, n_out=n_out)
+        self.avg = Average(input=input, dim=dim)
+        self.rnn = RNN(rng=rng, input=self.avg.output, h_prev=h_prev,
+            y_prev=y_prev, n_in=dim, n_hidden=n_hidden, n_out=n_out)
         self.h = self.rnn.h
         self.y = self.rnn.y
         self.output = self.rnn.output
         self.loss = self.rnn.loss
         self.error = self.rnn.error
-        self.params = self.cnn.params + self.rnn.params
+        #self.params = self.cnn.params + self.rnn.params
+        self.params = self.rnn.params
 
 
 def load_data(dataset):
@@ -45,13 +51,14 @@ def load_data(dataset):
 
 
 def test_rcnn(dim, n_out, n_feature_maps, window_sizes, n_hidden,
-    lr=0.001, n_epochs=1000000, validation_frequency=1000,
+    lr=0.01, lr_decay=0.1, n_epochs=1000000, validation_frequency=1000,
     dataset='data/swda.pkl.gz'):
 
     logging.info('dim = %d, n_out = %d' % (dim, n_out))
     logging.info('n_feature_maps = %d, window_sizes={}, n_hidden = %d'.format(
         window_sizes) % (n_feature_maps, n_hidden))
-    logging.info('lr = %f, n_epochs = %d' % (lr, n_epochs))
+    logging.info('lr = %f, lr_decay = %f, n_epochs = %d' % (
+        lr, lr_decay, n_epochs))
 
     print 'Initializing ...'
     # define variables
@@ -60,6 +67,7 @@ def test_rcnn(dim, n_out, n_feature_maps, window_sizes, n_hidden,
     label = T.scalar('label')
     h_prev = T.vector('h_prev')
     y_prev = T.vector('y_prev')
+    learning_rate = T.scalar('learning_rate')
 
     # define network
     rcnn = RCNN(rng=numpy.random.RandomState(54321), input=x, h_prev=h_prev,
@@ -74,13 +82,12 @@ def test_rcnn(dim, n_out, n_feature_maps, window_sizes, n_hidden,
     compute_error = theano.function(
         inputs=[x, h_prev, y_prev, label], outputs=[error, h_cur, output])
     compute_loss = theano.function(
-        inputs=[x, h_prev, y_prev, y], outputs=[cost, h_cur, output, rcnn.s,
-        rcnn.rnn.y])
+        inputs=[x, h_prev, y_prev, y], outputs=[cost, h_cur, output])
     gparams = [T.grad(cost, param) for param in rcnn.params]
-    updates = [(param, param - lr * gparam) for (
+    updates = [(param, param - learning_rate * gparam) for (
         param, gparam) in zip(rcnn.params, gparams)]
-    train_model = theano.function(
-        inputs=[x, h_prev, y_prev, y], outputs=h_cur, updates=updates)
+    train_model = theano.function(inputs=[x, h_prev, y_prev, y, learning_rate],
+        outputs=h_cur, updates=updates)
 
     print 'Loading data ...'
     train_x, train_label, valid_x, valid_label, test_x, test_label = load_data(
@@ -89,7 +96,7 @@ def test_rcnn(dim, n_out, n_feature_maps, window_sizes, n_hidden,
     n_valid = len(valid_x)
     n_test = len(test_x)
     # Expand x to max window size
-    def expand_x(x, min_size=max(window_sizes)):
+    def expand_x(x, min_size=1):
         fill_size = min_size - len(x)
         if fill_size > 0:
             x += [[0] * dim] * fill_size
@@ -119,15 +126,16 @@ def test_rcnn(dim, n_out, n_feature_maps, window_sizes, n_hidden,
     while epoch < n_epochs:
         epoch += 1
         for idx in xrange(n_train):
+            iter = (epoch - 1) * n_train + idx
             # train
             h_prev_train = train_model(
-                wrap_x(train_x[idx]), h_prev_train, y_prev_train, train_y[idx])
+                wrap_x(train_x[idx]), h_prev_train, y_prev_train, train_y[idx],
+                lr * (lr_decay ** (float(iter) / n_train)))
             h_prev_train = h_prev_train.flatten()
             y_prev_train = train_y[idx]
 
             # valid
-            iter = (epoch - 1) * n_train + idx + 1
-            if iter % validation_frequency == 0:
+            if (iter + 1) % validation_frequency == 0:
                 valid_errors = 0
                 for idx_v in xrange(n_valid):
                     [valid_error, h_prev_valid, y_prev_valid] = compute_error(
@@ -138,25 +146,21 @@ def test_rcnn(dim, n_out, n_feature_maps, window_sizes, n_hidden,
                     valid_errors += valid_error
                 mean_error = valid_errors / n_valid
                 valid_losses = 0
-                print
                 print '-----'
+                n_pred = defaultdict(lambda: [0, 0, 0])
                 for idx_v in xrange(n_valid):
-                    [valid_loss, h_prev_valid, y_prev_valid,ss,yy]=compute_loss(
+                    [valid_loss, h_prev_valid, y_prev_valid] = compute_loss(
                         wrap_x(valid_x[idx_v]), h_prev_valid, y_prev_valid,
                         valid_y[idx_v])
                     h_prev_valid = h_prev_valid.flatten()
-                    #if idx_v < 10: # debug info
-                        #print valid_x[idx_v]
-                        #print 's = '
-                        #print ss
-                        #print 'h = '
-                        #print h_prev_valid
-                        #print 'y = '
-                        #print yy
-                        #print valid_label[idx_v]
-                    print y_prev_valid[0],
+                    n_pred[y_prev_valid[0]][0] += 1 # for debug
+                    n_pred[valid_label[idx_v]][2] += 1 # for debug
+                    if y_prev_valid[0] == valid_label[idx_v]:
+                        n_pred[y_prev_valid[0]][1] += 1 # for debug
                     y_prev_valid = expand_y(y_prev_valid[0])
                     valid_losses += valid_loss
+                for k, v in n_pred.iteritems():
+                    print '%d:\t%d\t%d/%d' % (k, v[0], v[1], v[2])
                 mean_loss = valid_losses / n_valid
                 logging.info(
                     'Epoch %i, seq %i/%i, valid error %f, valid loss %f' % (
@@ -183,9 +187,15 @@ def test_rcnn(dim, n_out, n_feature_maps, window_sizes, n_hidden,
         epoch, idx+1, n_train, mean_error, mean_loss))
     print 'Done'
 
-if __name__ == '__main__':
+def main(log_file):
     logging.basicConfig(
-        level=logging.DEBUG, format='%(asctime)s [%(levelname)s] %(message)s',
-        datefmt='%d %b %Y %H:%M:%S', filename='training.log', filemode='w')
-    test_rcnn(dim=300, n_out=43, n_feature_maps=100, window_sizes=(3, 4, 5),
-        n_hidden=500, lr=0.1)
+        level=logging.DEBUG, format='[%(asctime)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S', filename=log_file, filemode='w')
+    test_rcnn(dim=300, n_out=43, n_feature_maps=100, window_sizes=(2, 3, 4),
+        n_hidden=500, lr=0.01, lr_decay=0.01)
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        print 'Usage: python %s <log_file>' % sys.argv[0]
+    else:
+        main(sys.argv[1])
