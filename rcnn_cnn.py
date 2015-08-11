@@ -190,7 +190,7 @@ def main(log_file):
         level=logging.DEBUG, format='[%(asctime)s] %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S', filename=log_file, filemode='w')
     test_rcnn(dim=300, n_out=43, n_feature_maps=100, window_sizes=(2, 3, 4),
-        n_hidden=500, lr=0.02, lr_decay=0.01, dataset='data/swda.random.pkl.gz')
+        n_hidden=500, lr=0.02, lr_decay=0.01, dataset='data/swda.pretrain.pkl.gz')
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
