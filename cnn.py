@@ -44,4 +44,10 @@ class CNN(object):
             dtype=theano.config.floatX)
         self.b = theano.shared(value=b_init)
         self.params.append(self.b)
+
+        # dropout
+        srng = T.shared_randomstreams.RandomStreams(rng.randint(99999))
+        mask = srng.binomial(n=1, p=1-p, size=self.output.shape)
+        self.output = T.cast(mask, theano.config.floatX)
+
         self.output = self.output + self.b
