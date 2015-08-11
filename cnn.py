@@ -49,6 +49,5 @@ class CNN(object):
         srng = T.shared_randomstreams.RandomStreams(rng.randint(99999))
         dropout_rate = 0.5
         mask = srng.binomial(n=1, p=1-dropout_rate, size=self.output.shape)
-        self.output = T.cast(mask, theano.config.floatX)
-
+        self.output = self.output * T.cast(mask, theano.config.floatX)
         self.output = self.output + self.b
